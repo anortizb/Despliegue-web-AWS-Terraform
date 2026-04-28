@@ -62,27 +62,22 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.8.5
 
       # ========================================
       # PASO 4: INICIALIZACIÓN
       # ========================================
-      - name: Terraform Init
-        run: |
-          echo "Inicializando Terraform..."
-          terraform init
-          echo "✓ Inicializado"
+      - name: Clean Terraform cache
+        run: rm -rf .terraform
 
       # ========================================
       # PASO 5: PLAN DE DESTRUCCIÓN
       # ========================================
-      - name: Terraform Destroy Plan
+      - name: Terraform Init
         run: |
-          echo "================================================"
-          echo "PLAN DE DESTRUCCIÓN"
-          echo "================================================"
-          terraform plan -destroy -out=destroy.tfplan
-          echo "================================================"
+          echo "Inicializando Terraform..."
+          terraform init -upgrade
+          echo "✓ Inicializado"
 
       # ========================================
       # PASO 6: EJECUTAR DESTRUCCIÓN
