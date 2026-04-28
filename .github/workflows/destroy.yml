@@ -1,0 +1,168 @@
+name: Terraform Infrastructure Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe "DESTROY" para confirmar la destrucción completa'
+        required: true
+        default: ''
+      keep_backend:
+        description: '¿Mantener bucket de backend?'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+        default: 'yes'
+
+jobs:
+  destroy:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+    
+    env:
+      AWS_REGION: us-east-1
+      BACKEND_BUCKET: andres-ortiz-terraform-state
+      TF_VAR_bucket_name: andres-ortiz-web-estatica
+      TF_VAR_backend_bucket: andres-ortiz-terraform-state
+
+    steps:
+      # ========================================
+      # VALIDACIÓN DE CONFIRMACIÓN
+      # ========================================
+      - name: Validate Destroy Confirmation
+        if: github.event.inputs.confirm != 'DESTROY'
+        run: |
+          echo "❌ ERROR: Confirmación incorrecta"
+          echo ""
+          echo "Para ejecutar la destrucción debes escribir exactamente: DESTROY"
+          echo ""
+          exit 1
+
+      # ========================================
+      # PASO 1: CHECKOUT
+      # ========================================
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ========================================
+      # PASO 2: CONFIGURAR AWS
+      # ========================================
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ========================================
+      # PASO 3: SETUP TERRAFORM
+      # ========================================
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      # ========================================
+      # PASO 4: INICIALIZACIÓN
+      # ========================================
+      - name: Terraform Init
+        run: |
+          echo "Inicializando Terraform..."
+          terraform init
+          echo "✓ Inicializado"
+
+      # ========================================
+      # PASO 5: PLAN DE DESTRUCCIÓN
+      # ========================================
+      - name: Terraform Destroy Plan
+        run: |
+          echo "================================================"
+          echo "PLAN DE DESTRUCCIÓN"
+          echo "================================================"
+          terraform plan -destroy -out=destroy.tfplan
+          echo "================================================"
+
+      # ========================================
+      # PASO 6: EJECUTAR DESTRUCCIÓN
+      # ========================================
+      - name: Terraform Destroy
+        run: |
+          echo "================================================"
+          echo "DESTRUYENDO INFRAESTRUCTURA"
+          echo "================================================"
+          terraform destroy -auto-approve
+          echo ""
+          echo "✅ Recursos de aplicación destruidos"
+          echo "================================================"
+
+      # ========================================
+      # PASO 7: LIMPIAR BUCKET DE BACKEND
+      # ========================================
+      - name: Clean Backend Bucket
+        if: github.event.inputs.keep_backend == 'no'
+        run: |
+          echo "================================================"
+          echo "LIMPIEZA DEL BUCKET DE BACKEND"
+          echo "================================================"
+          
+          BUCKET="${{ env.BACKEND_BUCKET }}"
+          
+          echo "⚠️  ADVERTENCIA: Eliminando bucket de backend y todo su contenido"
+          echo "   Esto eliminará permanentemente el historial de estado"
+          echo ""
+          
+          # Vaciar bucket (eliminar todos los objetos y versiones)
+          echo "→ Vaciando bucket..."
+          aws s3api list-object-versions \
+            --bucket "$BUCKET" \
+            --output json \
+            --query 'Versions[].{Key:Key,VersionId:VersionId}' | \
+          jq -r '.[] | "--key \"\(.Key)\" --version-id \"\(.VersionId)\""' | \
+          xargs -I {} aws s3api delete-object --bucket "$BUCKET" {}
+          
+          # Eliminar delete markers
+          aws s3api list-object-versions \
+            --bucket "$BUCKET" \
+            --output json \
+            --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' | \
+          jq -r '.[] | "--key \"\(.Key)\" --version-id \"\(.VersionId)\""' | \
+          xargs -I {} aws s3api delete-object --bucket "$BUCKET" {}
+          
+          echo "→ Eliminando bucket..."
+          aws s3api delete-bucket --bucket "$BUCKET"
+          
+          echo "✓ Bucket de backend eliminado"
+          echo "================================================"
+
+      # ========================================
+      # PASO 8: RESUMEN
+      # ========================================
+      - name: Destruction Summary
+        if: success()
+        run: |
+          echo ""
+          echo "================================================"
+          echo "RESUMEN DE DESTRUCCIÓN"
+          echo "================================================"
+          echo ""
+          echo "✅ Recursos destruidos:"
+          echo "   • Bucket S3: ${{ env.TF_VAR_bucket_name }}"
+          echo "   • Configuración de sitio web"
+          echo "   • Políticas y permisos"
+          echo "   • Objetos (index.html)"
+          echo ""
+          
+          if [ "${{ github.event.inputs.keep_backend }}" == "yes" ]; then
+            echo "📦 Bucket de backend preservado:"
+            echo "   • ${{ env.BACKEND_BUCKET }}"
+            echo "   • El estado de Terraform se mantiene para referencia"
+          else
+            echo "🗑️  Bucket de backend eliminado:"
+            echo "   • ${{ env.BACKEND_BUCKET }}"
+            echo "   • Todo el historial de estado ha sido eliminado"
+          fi
+          
+          echo ""
+          echo "================================================"
