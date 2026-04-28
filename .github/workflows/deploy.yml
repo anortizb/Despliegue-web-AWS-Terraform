@@ -119,25 +119,22 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
+          terraform_version: 1.8.5
 
       # ========================================
       # PASO 5: INICIALIZACIÓN
       # ========================================
-      - name: Terraform Init
-        run: |
-          echo "Inicializando Terraform..."
-          terraform init
-          echo "✓ Terraform inicializado"
+      - name: Clean Terraform cache
+        run: rm -rf .terraform
 
       # ========================================
       # PASO 6: VALIDACIÓN DE FORMATO
       # ========================================
-      - name: Terraform Format Check
+      - name: Terraform Init
         run: |
-          echo "Verificando formato del código..."
-          terraform fmt -check -recursive || echo "⚠️  Advertencia: código no formateado"
-        continue-on-error: true
+            echo "Inicializando Terraform..."
+            terraform init -upgrade
+            echo "✓ Terraform inicializado"
 
       # ========================================
       # PASO 7: VALIDACIÓN DE SINTAXIS
